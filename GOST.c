@@ -27,10 +27,11 @@ uint64_t generate_iv(){
 uint32_t s_box_half_block_in(uint32_t half_block){
         uint32_t result = 0;
         for (int i = 0; i < 8; i++){
-        	// half_block AND mask => only 4 bits remain, then rotate these bits so that they are the last 4 of the 32
+        	// half_block AND mask => only 4 bits remain, then shit these bits so that they are the last 4 of the 32
                 uint32_t s_box_pass = S_BOXES[i][(half_block & s_box_masks[i]) >> (28 - 4*i)];
-                // the 4 bit result must be shifted to the right so that bits stack up correctly
+                // the 4 bit result must be shifted to the left so that they stack and form a 32 bit integer
 		s_box_pass = s_box_pass << (28 - 4*i);
+		// binary concatenation of result and s_box_pass
 		result = result | s_box_pass;
         }
         return result;
@@ -41,8 +42,11 @@ void f_round(uint32_t *msg_hi, uint32_t *msg_lo, uint32_t *sub_key){
 	// (msg_lo + sub_key) % 2^32 == (msg_lo + sub_key) AND 2^32 - 1
 	// both operands are 32 bits, they must be casted to 64 bit to avoid overflow and then casted back
 	uint32_t modulo2sum = (uint32_t) (((uint64_t) *msg_lo + (uint64_t) *sub_key) & power_2_32_min_1);
+	// the modulo 2 sum is passed through the S-BOXES
 	modulo2sum = s_box_half_block_in(modulo2sum);
+	// the output of the S-BOXES must be rotated left by 11 positions
 	modulo2sum = (modulo2sum << 11) | (modulo2sum >> 21);
+	// finally, msg_lo is the result of the previous operation XOR msg_hi
 	*msg_lo = modulo2sum ^ *msg_hi;
 	*msg_hi = tmp;
 }
@@ -70,6 +74,7 @@ uint64_t encrypt_block(uint64_t block, uint32_t sub_keys[]){
 }
 
 void encrypt(uint64_t blocks[], int blocks_len, uint32_t sub_keys[], int mode, uint64_t *result){
+	// 1 -> ECB
 	if (mode == 1){
 		for (int i = 0; i < blocks_len; i++){
 			result[i] = encrypt_block(blocks[i], sub_keys);
@@ -94,19 +99,57 @@ uint64_t decrypt_block(uint64_t block, uint32_t sub_keys[]){
         return ((uint64_t) msg_lo) << 32 | (uint64_t) msg_hi;
 }
 
-void main(){
-	uint64_t x[10];
-	for (int i = 0; i < 10; i++){
+void decrypt(uint64_t blocks[], int blocks_len, uint32_t sub_keys[], int mode, uint64_t *result){
+	if (mode == 1){
+		for (int i = 0; i < blocks_len; i++){
+			result[i] = decrypt_block(blocks[i], sub_keys);
+		}
+	}
+}
+
+void main(int argc, char **argv){
+	int size_of_msg = atoi(argv[1]);
+
+	// Plaintext
+	uint64_t x[size_of_msg];
+	for (int i = 0; i < size_of_msg; i++){
 		getrandom(&x[i], sizeof(uint64_t), GRND_NONBLOCK);
 	}
+	printf("Plaintext: ");
+	for (int i = 0; i < size_of_msg; i++){
+		printf("%lx", x[i]);
+	}
+	printf("\n");
+
+	// Subkeys
 	uint32_t s[8];
 	for (int i = 0; i < 8; i++){
 		getrandom(&s[i], sizeof(uint32_t), GRND_NONBLOCK);
 	}
-	uint64_t enc[10];
-	uint64_t *enc_ptr = enc;
-	encrypt(x, 10, s, 1, enc_ptr);
-	for (int i = 0; i < 10; i++){
-		printf("%lu", enc[i]);
+	printf("Subkeys: ");
+	for (int i = 0; i < 8; i++){
+		printf("%x", s[i]);
 	}
+	printf("\n");
+
+	// Encrypted
+	uint64_t enc[size_of_msg];
+	uint64_t *enc_ptr = enc;
+	encrypt(x, size_of_msg, s, 1, enc_ptr);
+	printf("Encrypted: ");
+	for (int i = 0; i < size_of_msg; i++){
+		printf("%lx", enc[i]);
+	}
+	printf("\n");
+
+	// Decrypted
+	uint64_t dec[size_of_msg];
+	uint64_t *dec_ptr = dec;
+	decrypt(enc, size_of_msg, s, 1, dec_ptr);
+	printf("Decrypted: ");
+	for (int i = 0; i < size_of_msg; i++){
+		printf("%lx", dec[i]);
+	}
+	printf("\n");
+
 }
