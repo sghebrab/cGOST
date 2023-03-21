@@ -108,7 +108,8 @@ void decrypt(uint64_t blocks[], int blocks_len, uint32_t sub_keys[], int mode, u
 }
 
 void main(int argc, char **argv){
-	int size_of_msg = atoi(argv[1]);
+	char *pEnd;
+	uint32_t size_of_msg = strtol(argv[1], &pEnd, 10);
 
 	// Plaintext
 	uint64_t x[size_of_msg];
