@@ -4,6 +4,12 @@
 #include <stdint.h>
 #include <sys/random.h>
 
+#define ECB 1
+#define CBC 2
+#define OFB 3
+#define CFB 4
+#define CTR 5
+
 int GLOBAL_INDEX_ROUNDS = 0;
 int BLOCK_LENGTH = 64;
 int KEY_LENGTH = 256;
@@ -73,12 +79,39 @@ uint64_t encrypt_block(uint64_t block, uint32_t sub_keys[]){
 	return ((uint64_t) msg_lo) << 32 | (uint64_t) msg_hi;
 }
 
-void encrypt(uint64_t blocks[], int blocks_len, uint32_t sub_keys[], int mode, uint64_t *result){
-	// 1 -> ECB
-	if (mode == 1){
+void encrypt(uint64_t blocks[], int blocks_len, uint32_t sub_keys[], int mode, uint64_t iv, uint64_t *result){
+	switch(mode){
+	case ECB:
 		for (int i = 0; i < blocks_len; i++){
 			result[i] = encrypt_block(blocks[i], sub_keys);
 		}
+		break;
+	case CBC:
+		for (int i = 0; i < blocks_len; i++){
+			iv = encrypt_block(blocks[i] ^ iv, sub_keys);
+			result[i] = iv;
+		}
+		break;
+	case OFB:
+		for (int i = 0; i < blocks_len; i++){
+			iv = encrypt_block(iv, sub_keys);
+			result[i] = iv ^ blocks[i];
+		}
+		break;
+	case CFB:
+		for (int i = 0; i < blocks_len; i++){
+			iv = encrypt_block(iv, sub_keys);
+			result[i] = iv ^ blocks[i];
+			iv = result[i];
+		}
+		break;
+	case CTR:
+		for (int i = 0; i < blocks_len; i++){
+			uint64_t ith_iv = iv ^ (uint64_t) i;
+			result[i] = encrypt_block(ith_iv, sub_keys) ^ blocks[i];
+		}
+		break;
+	default:
 	}
 }
 
@@ -99,17 +132,47 @@ uint64_t decrypt_block(uint64_t block, uint32_t sub_keys[]){
         return ((uint64_t) msg_lo) << 32 | (uint64_t) msg_hi;
 }
 
-void decrypt(uint64_t blocks[], int blocks_len, uint32_t sub_keys[], int mode, uint64_t *result){
-	if (mode == 1){
+void decrypt(uint64_t blocks[], int blocks_len, uint32_t sub_keys[], int mode, uint64_t iv, uint64_t *result){
+	switch (mode){
+	case ECB:
 		for (int i = 0; i < blocks_len; i++){
 			result[i] = decrypt_block(blocks[i], sub_keys);
 		}
+		break;
+	case CBC:
+		for (int i = 0; i < blocks_len; i++){
+			result[i] = decrypt_block(blocks[i], sub_keys) ^ iv;
+			iv = blocks[i];
+		}
+		break;
+	case OFB:
+		for (int i = 0; i < blocks_len; i++){
+			iv = encrypt_block(iv, sub_keys);
+			result[i] = iv ^ blocks[i];
+		}
+		break;
+	case CFB:
+		for (int i = 0; i < blocks_len; i++){
+			result[i] = encrypt_block(iv, sub_keys) ^ blocks[i];
+			iv = blocks[i];
+		}
+		break;
+	case CTR:
+		for (int i = 0; i < blocks_len; i++){
+			uint64_t ith_iv = iv ^ (uint64_t) i;
+			result[i] = encrypt_block(ith_iv, sub_keys) ^ blocks[i];
+		}
+		break;
+	default:
 	}
 }
 
 void main(int argc, char **argv){
-	char *pEnd;
-	uint32_t size_of_msg = strtol(argv[1], &pEnd, 10);
+	char *pEnd_1;
+	uint32_t size_of_msg = strtol(argv[1], &pEnd_1, 10);
+
+	char *pEnd_2;
+	int mode = strtol(argv[2], &pEnd_2, 10);
 
 	// Plaintext
 	uint64_t x[size_of_msg];
@@ -133,10 +196,14 @@ void main(int argc, char **argv){
 	}
 	printf("\n");
 
+	// IV
+	uint64_t iv = generate_iv();
+	printf("IV: %lx\n", iv);
+
 	// Encrypted
 	uint64_t enc[size_of_msg];
 	uint64_t *enc_ptr = enc;
-	encrypt(x, size_of_msg, s, 1, enc_ptr);
+	encrypt(x, size_of_msg, s, mode, iv, enc_ptr);
 	printf("Encrypted: ");
 	for (int i = 0; i < size_of_msg; i++){
 		printf("%lx", enc[i]);
@@ -146,7 +213,7 @@ void main(int argc, char **argv){
 	// Decrypted
 	uint64_t dec[size_of_msg];
 	uint64_t *dec_ptr = dec;
-	decrypt(enc, size_of_msg, s, 1, dec_ptr);
+	decrypt(enc, size_of_msg, s, mode, iv, dec_ptr);
 	printf("Decrypted: ");
 	for (int i = 0; i < size_of_msg; i++){
 		printf("%lx", dec[i]);
