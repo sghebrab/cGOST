@@ -10,9 +10,6 @@
 #define CFB 4
 #define CTR 5
 
-int GLOBAL_INDEX_ROUNDS = 0;
-int BLOCK_LENGTH = 64;
-int KEY_LENGTH = 256;
 int S_BOXES[8][16] = {{12, 4, 6, 2, 10, 5, 11, 9, 14, 8, 13, 7, 0, 3, 15, 1},
                       {6, 8, 2, 3, 9, 10, 5, 12, 1, 14, 4, 7, 11, 13, 0, 15},
                       {11, 3, 5, 8, 2, 15, 10, 13, 14, 1, 7, 4, 12, 9, 6, 0},
