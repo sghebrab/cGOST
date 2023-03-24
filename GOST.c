@@ -76,7 +76,24 @@ uint64_t encrypt_block(uint64_t block, uint32_t sub_keys[]){
 	return ((uint64_t) msg_lo) << 32 | (uint64_t) msg_hi;
 }
 
-void encrypt(uint64_t blocks[], int blocks_len, uint32_t sub_keys[], int mode, uint64_t iv, uint64_t *result){
+uint64_t decrypt_block(uint64_t block, uint32_t sub_keys[]){
+        uint32_t msg_hi = (uint32_t) (block >> 32);
+        uint32_t *msg_hi_ptr = &msg_hi;
+        uint32_t msg_lo = (uint32_t) ((block << 32) >> 32);
+        uint32_t *msg_lo_ptr = &msg_lo;
+        uint32_t *sub_key_ptr;
+        for (int i = 0; i < 8; i++){
+                sub_key_ptr = &sub_keys[i];
+                f_round(msg_hi_ptr, msg_lo_ptr, sub_key_ptr);
+        }
+        for (int i = 0; i < 24; i++){
+                sub_key_ptr = &sub_keys[7 - (i % 8)];
+                f_round(msg_hi_ptr, msg_lo_ptr, sub_key_ptr);
+        }
+        return ((uint64_t) msg_lo) << 32 | (uint64_t) msg_hi;
+}
+
+void encrypt(uint64_t blocks[], uint32_t blocks_len, uint32_t sub_keys[], uint8_t mode, uint64_t iv, uint64_t result[]){
 	switch(mode){
 	case ECB:
 		for (int i = 0; i < blocks_len; i++){
@@ -112,24 +129,7 @@ void encrypt(uint64_t blocks[], int blocks_len, uint32_t sub_keys[], int mode, u
 	}
 }
 
-uint64_t decrypt_block(uint64_t block, uint32_t sub_keys[]){
-	uint32_t msg_hi = (uint32_t) (block >> 32);
-        uint32_t *msg_hi_ptr = &msg_hi;
-        uint32_t msg_lo = (uint32_t) ((block << 32) >> 32);
-        uint32_t *msg_lo_ptr = &msg_lo;
-        uint32_t *sub_key_ptr;
-        for (int i = 0; i < 8; i++){
-        	sub_key_ptr = &sub_keys[i];
-		f_round(msg_hi_ptr, msg_lo_ptr, sub_key_ptr);
-        }
-        for (int i = 0; i < 24; i++){
-		sub_key_ptr = &sub_keys[7 - (i % 8)];
-		f_round(msg_hi_ptr, msg_lo_ptr, sub_key_ptr);
-        }
-        return ((uint64_t) msg_lo) << 32 | (uint64_t) msg_hi;
-}
-
-void decrypt(uint64_t blocks[], int blocks_len, uint32_t sub_keys[], int mode, uint64_t iv, uint64_t *result){
+void decrypt(uint64_t blocks[], uint32_t blocks_len, uint32_t sub_keys[], uint8_t mode, uint64_t iv, uint64_t result[]){
 	switch (mode){
 	case ECB:
 		for (int i = 0; i < blocks_len; i++){
@@ -169,7 +169,7 @@ void main(int argc, char **argv){
 	uint32_t size_of_msg = strtol(argv[1], &pEnd_1, 10);
 
 	char *pEnd_2;
-	int mode = strtol(argv[2], &pEnd_2, 10);
+	uint8_t mode = strtol(argv[2], &pEnd_2, 10);
 
 	// Plaintext
 	uint64_t x[size_of_msg];
@@ -199,8 +199,7 @@ void main(int argc, char **argv){
 
 	// Encrypted
 	uint64_t enc[size_of_msg];
-	uint64_t *enc_ptr = enc;
-	encrypt(x, size_of_msg, s, mode, iv, enc_ptr);
+	encrypt(x, size_of_msg, s, mode, iv, enc);
 	printf("Encrypted: ");
 	for (int i = 0; i < size_of_msg; i++){
 		printf("%lx", enc[i]);
@@ -209,12 +208,10 @@ void main(int argc, char **argv){
 
 	// Decrypted
 	uint64_t dec[size_of_msg];
-	uint64_t *dec_ptr = dec;
-	decrypt(enc, size_of_msg, s, mode, iv, dec_ptr);
+	decrypt(enc, size_of_msg, s, mode, iv, dec);
 	printf("Decrypted: ");
 	for (int i = 0; i < size_of_msg; i++){
 		printf("%lx", dec[i]);
 	}
 	printf("\n");
-
 }
