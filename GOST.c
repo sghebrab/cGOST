@@ -1,15 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <sys/random.h>
 
-#define ECB 1
-#define CBC 2
-#define OFB 3
-#define CFB 4
-#define CTR 5
+#define ECB 0
+#define CBC 1
+#define OFB 2
+#define CFB 3
+#define CTR 4
 
+// S-boxes defined by the GOST R 34.12-2015 standard
 int S_BOXES[8][16] = {{12, 4, 6, 2, 10, 5, 11, 9, 14, 8, 13, 7, 0, 3, 15, 1},
                       {6, 8, 2, 3, 9, 10, 5, 12, 1, 14, 4, 7, 11, 13, 0, 15},
                       {11, 3, 5, 8, 2, 15, 10, 13, 14, 1, 7, 4, 12, 9, 6, 0},
@@ -18,20 +18,26 @@ int S_BOXES[8][16] = {{12, 4, 6, 2, 10, 5, 11, 9, 14, 8, 13, 7, 0, 3, 15, 1},
                       {5, 13, 15, 6, 9, 2, 12, 10, 11, 7, 8, 1, 4, 3, 14, 0},
                       {8, 14, 2, 5, 6, 9, 1, 12, 15, 4, 11, 0, 13, 10, 3, 7},
                       {1, 7, 14, 13, 0, 5, 8, 3, 4, 15, 10, 6, 9, 12, 11, 2}};
-uint32_t power_2_32_min_1 = 4294967295;
-uint32_t s_box_masks[8] = {4026531840, 251658240, 15728640, 983040, 61440, 3840, 240, 15};
 
+// Pre-computed value of 2^32 - 1, used later to optimize remainder divisions
+uint32_t POWER_2_32_MIN_1 = 4294967295;
+
+// 11110000000000000000000000000000, 00001111000000000000000000000000, 00000000111100000000000000000000, and so on and so forth
+uint32_t S_BOX_MASKS[8] = {4026531840, 251658240, 15728640, 983040, 61440, 3840, 240, 15};
+
+// This function generates a random uint64_t IV (initialization vector)
 uint64_t generate_iv(){
 	uint64_t iv;
 	getrandom(&iv, sizeof(uint64_t), GRND_NONBLOCK);
 	return iv;
 }
 
+// This function takes half block (uint32_t) and passes it through the S-Boxes, returning the result
 uint32_t s_box_half_block_in(uint32_t half_block){
         uint32_t result = 0;
         for (int i = 0; i < 8; i++){
         	// half_block AND mask => only 4 bits remain, then shit these bits so that they are the last 4 of the 32
-                uint32_t s_box_pass = S_BOXES[i][(half_block & s_box_masks[i]) >> (28 - 4*i)];
+                uint32_t s_box_pass = S_BOXES[i][(half_block & S_BOX_MASKS[i]) >> (28 - 4*i)];
                 // the 4 bit result must be shifted to the left so that they stack and form a 32 bit integer
 		s_box_pass = s_box_pass << (28 - 4*i);
 		// binary concatenation of result and s_box_pass
@@ -40,11 +46,12 @@ uint32_t s_box_half_block_in(uint32_t half_block){
         return result;
 }
 
+// Normal GOST round
 void f_round(uint32_t *msg_hi, uint32_t *msg_lo, uint32_t *sub_key){
 	uint32_t tmp = *msg_lo;
 	// (msg_lo + sub_key) % 2^32 == (msg_lo + sub_key) AND 2^32 - 1
 	// both operands are 32 bits, they must be casted to 64 bit to avoid overflow and then casted back
-	uint32_t modulo2sum = (uint32_t) (((uint64_t) *msg_lo + (uint64_t) *sub_key) & power_2_32_min_1);
+	uint32_t modulo2sum = (uint32_t) (((uint64_t) *msg_lo + (uint64_t) *sub_key) & POWER_2_32_MIN_1);
 	// the modulo 2 sum is passed through the S-BOXES
 	modulo2sum = s_box_half_block_in(modulo2sum);
 	// the output of the S-BOXES must be rotated left by 11 positions
@@ -54,6 +61,7 @@ void f_round(uint32_t *msg_hi, uint32_t *msg_lo, uint32_t *sub_key){
 	*msg_hi = tmp;
 }
 
+// This function takes as input a 64-bit block and an array of 8 32-bit sub-keys and encrypts it
 uint64_t encrypt_block(uint64_t block, uint32_t sub_keys[]){
 	// msg_hi is obtained by rotating to the right the first 32 bits of the block
 	// notice the parenthesis => first rotate the 64 bit int right by 32, then cast the result tu uint32_t
@@ -76,6 +84,7 @@ uint64_t encrypt_block(uint64_t block, uint32_t sub_keys[]){
 	return ((uint64_t) msg_lo) << 32 | (uint64_t) msg_hi;
 }
 
+// Same as the previous one, but used to decrypt a block
 uint64_t decrypt_block(uint64_t block, uint32_t sub_keys[]){
         uint32_t msg_hi = (uint32_t) (block >> 32);
         uint32_t *msg_hi_ptr = &msg_hi;
@@ -93,6 +102,8 @@ uint64_t decrypt_block(uint64_t block, uint32_t sub_keys[]){
         return ((uint64_t) msg_lo) << 32 | (uint64_t) msg_hi;
 }
 
+// This function takes as input an array of 64-bit blocks, the length of the array, the array of sub-keys (length is known),
+// a 8-bit operating mode, a 64-bit IV and a pointer to the memory location where the result of the encryption will be written.
 void encrypt(uint64_t blocks[], uint32_t blocks_len, uint32_t sub_keys[], uint8_t mode, uint64_t iv, uint64_t result[]){
 	switch(mode){
 	case ECB:
@@ -129,6 +140,7 @@ void encrypt(uint64_t blocks[], uint32_t blocks_len, uint32_t sub_keys[], uint8_
 	}
 }
 
+// Same as the previous one, but this one performs decryption
 void decrypt(uint64_t blocks[], uint32_t blocks_len, uint32_t sub_keys[], uint8_t mode, uint64_t iv, uint64_t result[]){
 	switch (mode){
 	case ECB:
