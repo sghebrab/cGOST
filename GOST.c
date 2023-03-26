@@ -137,6 +137,7 @@ void encrypt(uint64_t blocks[], uint32_t blocks_len, uint32_t sub_keys[], uint8_
 		}
 		break;
 	default:
+		break;
 	}
 }
 
@@ -173,6 +174,7 @@ void decrypt(uint64_t blocks[], uint32_t blocks_len, uint32_t sub_keys[], uint8_
 		}
 		break;
 	default:
+		break;
 	}
 }
 
